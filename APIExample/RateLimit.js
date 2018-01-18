@@ -1,90 +1,110 @@
-var RateLimit = require('./RateLimitSchema');
-var RateConfig = require('./RateLimitConfg');
+var RateLimit = (function(){
 
-function RateLimit(req, res, next){
-    let ip = req.headers['x-forwarded-for'] ||
-        req.connection.remoteAddress ||
-        req.socket.remoteAddress ||
-        req.connection.socket.remoteAddress;
+    let mongoose = require('mongoose');
+    let RateLimitSchema = mongoose.model('RateLimits');
+    let RateConfig = require('./RateLimitConfg');
+    let SchemaErrors = require('./SchemErrorrs');
 
-    RateLimit
-        .find({ip: ip}, function(error, rateLimit){
-            if(error){
-                res.statusCode = 500;
-                return next(error);
-            }else if(!rateLimit){
-                rateLimit = new RateLimit({
-                    ip: ip,
-                    firstRequestOn: new Date()
-                });
-                rateLimit.save(function(error, rateLimit) {
-                    if (error) {
-                        res.statusCode = 500;
-                        return next(error);
-                    } else if (!rateLimit) {
-                        res.statusCode = 500;
-                        return res.json({
-                            errors: [
-                                {message: 'Error checking rate limit'}
-                            ]
-                        });
-                    }
-                });
-            }
+    let getRateLimit = function(req, res, next){
+        let ip = getIpFromReq(req);
+        let ipRateLimit = findIp(ip);
+        
+        if(!ipRateLimit){
+            saveRateLimitForIP(ip);
+        }
 
-            let dateNow = new Date();
-            rateLimit.firstRequestOn.setHours(rateLimit.firstRequestOn.getHours() + RateConfig.hours);
+        if(isIPRateLimitExpired(ipRateLimit)){
+            updateRateLimitForIP(ip);
+        }
 
-            if(rateLimit < dateNow){
-                //update firstREquestOn
-            }
-            //..
+        sendResposneWithRateLimit(req, res, next, rateLimit);
+    };
+
+
+    let getIpFromReq = function(req){
+        return req.headers['x-forwarded-for'] ||
+                req.connection.remoteAddress ||
+                req.socket.remoteAddress ||
+                req.connection.socket.remoteAddress;
+    }
+
+    let findRateLimitForIP = function(ip){
+        RateLimitSchema.find({ip: ip}, function(rateLimit){
+            return rateLimit;
         });
-            { $inc: { requests: 1 } },
-            { upsert: false })
-        .exec(function(error, rateLimit) {
+    }
+    
+    let saveRateLimitForIP = function(ip){
+        let rateLimit = new RateLimitSchema({
+            ip: ip,
+            firstRequestOn: new Date()
+        });
+        rateLimit.save(function(error) {
             if (error) {
-                res.statusCode = 500;
-                return next(error);
-            } else if (!rateLimit) {
-                rateLimit = new RateLimit({
-                    ip: ip,
-                    firstRequestOn: new Date()
-                });
-                rateLimit.save(function(error, rateLimit) {
-                    if (error) {
-                        res.statusCode = 500;
-                        return next(error);
-                    } else if (!rateLimit) {
-                        res.statusCode = 500;
-                        return res.json({
-                            errors: [
-                                {message: 'Error checking rate limit'}
-                            ]
-                        });
-                    }
-
-                    respondWithThrottle(req, res, next, rateLimit);
-                });
-            } else {
-                respondWithThrottle(req, res, next, rateLimit);
+                return SchemaErrors.saveError(req);
             }
         });
+    }
 
-    function respondWithThrottle(req, res, next, rateLimit) {
+    let isIPRateLimitExpired = function(ipRateLimit){
+        let dateNow = new Date();
+        ipRateLimit.firstRequestOn.setHours(ipRateLimit.firstRequestOn.getHours() + RateConfig.hours);
 
-        res.set('x-rateLimit-limit', RateConfig.maxRequests);
-        res.set('x-ratelimit-remaining', RateConfig.maxRequests - rateLimit.requests);
-        req.rateLimit = rateLimit;
-        if (rateLimit.requests < RateConfig.maxRequests) {
+        if(rateLimit.firstRequestOn < dateNow){
+           return true;
+        }
+
+        return false;
+    }
+
+
+    let updateRateLimitForIP = function(ip){
+        RateLimitSchema.update({
+                                    ip: ip, 
+                                    $set: [{
+                                        firstREquestOn: new Date(),
+                                        requests: 1
+                                    }]
+                                
+                                }, function(error, updatedLimit){
+                                    if(error){
+                                        SchemaErrors.updateError(req);
+                                    }
+                            });
+    }
+
+    let sendResposneWithRateLimit = function(req, res, next, rateLimit) {
+
+        //req.rateLimit = rateLimit; ???
+        if(isRateRequestsReached()){
+            res = addRateLimitHeaderToResponse(res);
             return next();
         } else {
-            res.statusCode = 429;
-            return res.json({
-                errors: [
-                    {message: 'Rate Limit reached. Please wait and try again.'}
-                ]
-            });
+            sendRateLimitReachedResponse(res);
         }
     }
-}
+
+    let isRateRequestsReached = function(){
+        return rateLimit.requests < RateConfig.maxRequests;
+    }
+
+    let addRateLimitHeaderToResponse = function(res){
+        res.set('x-rateLimit-limit', RateConfig.maxRequests);
+        res.set('x-ratelimit-remaining', RateConfig.maxRequests - rateLimit.requests);
+
+        return res;
+    }
+
+    let sendRateLimitReachedResponse = function(res){
+        res.statusCode = 429;
+        return res.json({
+            errors: [
+                { message: 'Rate limit reached. Please wait and try again.' }
+            ]
+        });
+    }
+
+    return{
+        getRateLimit: getRateLimit
+    }
+})();

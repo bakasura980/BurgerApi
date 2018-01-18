@@ -1,9 +1,8 @@
 var mongoose = require('mongoose');
 var Burgers = mongoose.model('Burgers');
-var Param = require('../../Param');
+var Param = require('../../ParamFacade');
 
 var BurgerController = (function(){
-    //A global size
 
     let getRandomBurger = function(req, res){
         let randomId = calculateRandomBurgerId();
@@ -30,8 +29,6 @@ var BurgerController = (function(){
           });
     }
 
-    //get The last record's id
-    //validate the data
     let createBurger = function(req, res){
         let newBurger = new Burgers(req.body);
         newBurger.save(function(err, burger) {
@@ -43,12 +40,9 @@ var BurgerController = (function(){
         });
     }
 
-    //Have to refactor it !
-    //Check for existance of others params
-    //Check for empty paraneter
     let getBurgers = function(req, res){
 
-        let param = new Param(req);
+        let param = new ParamFacade(req);
 
         Burgers.find(generateFindCreateria(param.filtersObject), function(err, burger) {
             if(err){
