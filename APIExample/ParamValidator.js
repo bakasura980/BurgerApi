@@ -1,23 +1,40 @@
-var ParamValidator = function(params){
-    let ParamConfig = require('./ParamConfig');    
+var ParamValidator = (function(){
+    let ParamConfig = require('./API/Params/config/ParamConfig');    
 
-    this.checkForWrongParams = function(params){
+    let checkForWrongParams = function(params, res, next){
         for(let param in params){
-            if(!(param in ParamConfig)){
-                return true;
+            if(!(param in ParamConfig) && param !== "page" && param !== "per_page"){
+                res.statusCode = 400;
+                return res.json({
+                    errors: [
+                        { message: `Wrong param: ""${param}""` }
+                    ]
+                });
             }
         }
 
-        return false;
+        next();
     }
 
-    this.checkForEmptyParam = function(params){
+    let checkForEmptyParam = function(params, res, next){
         for(let param in params){
             if(params[param] === ""){
-                return true;
+                res.statusCode = 400;
+                return res.json({
+                    errors: [
+                        { message: `Param: "${param}" can not be empty` }
+                    ]
+                });
             }
         }
 
-        return false;
+        next();
     }
-}
+
+    return{
+        checkForWrongParams: checkForWrongParams,
+        checkForEmptyParam: checkForEmptyParam
+    }
+})();
+
+module.exports = ParamValidator;

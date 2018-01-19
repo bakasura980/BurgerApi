@@ -1,9 +1,9 @@
 module.exports = function(app){
 
     
-    let bugerController = require('../controllers/BurgerControler');
+    let bugerController = require('../controllers/BurgerController/BurgerControler');
 
-    app.route('burgers/:id')
+    app.route('/burgers/:id')
     .get(bugerController.getBurger);
 
     app.route('/burger/random')
